@@ -1,4 +1,10 @@
 #!/usr/bin/python
+
+'''
+Agent model showing the evolution of credits and balances in a mutual credit system for house sharing with guest stays. 
+'''
+
+
 from random import randint
 
 # user inputs
