@@ -1,7 +1,8 @@
 #!/usr/bin/python
 
 '''
-Agent model showing the evolution of credits and balances in a mutual credit system for house sharing with guest stays. 
+Agent model for a house sharing network with internal credit system and guest
+stays. How do balances evolve, what does it mean for the system to be healthy? 
 '''
 
 
@@ -34,6 +35,7 @@ class Agent(object):
 		self.room_price = room_price
 		self.room_nights_contributed = 0
 		self.room_nights_used = 0
+
 
 agents = []
 
@@ -72,10 +74,13 @@ while t <= 100:
 	# save a list of available agents so there's no collisions
 	available_travelers = range(len(agents))
 	available_hosts = range(len(agents))
-	guest_income = 0
+	# "income" is earned dollars from guest stays
+	total_income_today = 0
+	# ...whereas "value" is based on the set room price
+	total_value_today = 0
 	# remember who was a host this period
 	hosts_this_period = []
-	traveler_members_this_period = []
+	traveling_members_today = []
 
 	for i in range(0,int(round(num_member_travelers))):
 		# randomly select traveling agent from the remaining ones available
@@ -93,21 +98,24 @@ while t <= 100:
 		# for each member res:
 		#	  increase host drft_bal
 		#	  subtract member drft_bal
+		#	  if the member is out of drft, they pay in dollars
 		if ta.drft_bal == 0:
 			ta.dollar_bal -= ha.room_price
-			guest_income += ha.room_price
+			total_income_today += ha.room_price
 		else:
 			ta.drft_bal -= 1
 
 		ha.drft_bal += 1
+		# track *value* whether or not this was a paid or drft stay. 
+		total_value_today += ha.room_price
 
 		print 'agent %d stayed with agent %d.' % (ta.id, ha.id)
 		print 'traveler balance: %d. host balance: %d\n' % (ta.drft_bal, ha.drft_bal) 
 
-		if ta in traveler_members_this_period:
+		if ta in traveling_members_today:
 			raise Exception, "Error: a member cannot travel in two places at once. idx = %d, ta.id = %d" % (idx, ta.id)
 		else:
-			traveler_members_this_period.append(ta)
+			traveling_members_today.append(ta)
 
 		if ta.drft_bal < 0:
 			raise Exception, "Error, agent %d drft balance is %d" % (ta.id, ta.drft_bal)
@@ -120,15 +128,16 @@ while t <= 100:
 	print 'generating reservations for %d guest travelers (there may be rounding)\n' % int(round(num_guest_travelers))
 	for i in range(0, int(round(num_guest_travelers))):
 		#   randomly select hosting agent ha
-		#   with paying guests, there is no traveling agent who spends credits
+		#   with paying guests, there is no traveling agent who spends credits,
+		#   but one is rather "minted" from the guest income. 
 		ha_idx = randint(0, len(available_hosts)-1)
 		ha = agents[ha_idx]
-		#   for each member res:
+		#   for each guest res:
 		#	  increase host drft_bal
-		#	  update dollar_bal (or store centrally so we can average it and distribute in a sec)
+		#	  store dollar val centrally so we can compute the "double fractional distribution" 
 		ha.drft_bal += 1
 		hosts_this_period.append(ha)
-		guest_income += ha.room_price
+		total_income_today += ha.room_price
 		print 'a guest stayed with agent %d for %f.' % (ha.id, ha.room_price)
 
 	print 'sanity check for t=%d' % t
@@ -139,22 +148,25 @@ while t <= 100:
 	print '    total rooms (should be same as hosts): %f\n' % (globavg_occupancy*len(agents))
 
 	# *** update globavg_occupancy?
-	# right now we can leave it fixed - later we can make it vary between a min
-	# and max value. 
+	# right now we are using this as an *input* to the system, rather than an
+	# emergent property. so, to start we will leave it fixed - but we could
+	# also eventually model it to vary between a min and max value. 
 
-	# calculate proportionate distribution of guest income to all agents
-	#   sum all host nights 
-	#   sum of all reservation dollar values
-	#   divide sum reservation dollar values/agent with reservations
-	#   add this weighted average to the dollar_bal of each agent that had a reservation that night. 
+	# calculate double fractional distribution (DFD) of guest income for today 
+	#   * sum all nights hosted today (member and guest)
+	#   * sum of all guest income today
+	#	* calculate a fractional share of the total income across all locations that hosted (guest + member)
+	#   * add this fractional share to the dollar_bal of each agent that had a reservation that night. 
 	#   note that in general a single host might be in this list multiple
 	#   times, and will receive the appropriate number of shares
 	#   commensurately. 
-	num_ha = len(hosts_this_period)
-	averaged_guest_share = float(guest_income)/num_ha
+	nights_hosted_today = len(hosts_this_period)
+	averaged_guest_share = float(total_income_today)/nights_hosted_today
 	for ha in hosts_this_period:
-		ha.dollar_bal += averaged_guest_share
-		print 'agent %d earned %f' % (ha.id, averaged_guest_share)
+		fraction = ha.room_price/total_value_today
+		host_share = fraction*total_income_today
+		ha.dollar_bal += host_share
+		print 'agent %d earned %f' % (ha.id, host_share)
 
 	# true up for average occupancy?
 
@@ -181,12 +193,14 @@ while t <= 100:
 	raw_input("press enter to continue...\n\n")
 
 '''
-# todo
 * DONE add in income calcuation for monthly membership nights. 
+* DONE compute double fractional share instead of averaged share of guest income
+# todo
 * actually model lost nights, not just gained nights. (this model essentially assumes each agent backs at least one extra room - though we do need to constrain number of guests at once then!)
   * still to be done:***
   * available_hosts needs to be multiplied by the number of rooms each user is backing
   * then the available_hosts list DOES need to be subtractive
+* track system-wide capacity, versus total D. 
 * track how many times a user paid $ for their stay, and average price/night compared to list guest price.
 * introduce variability in occupancy night by night, w average occupancy being what's given
 * let a user specify their own travel frequency and guest room price as input. 
